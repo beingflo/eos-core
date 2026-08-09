@@ -1,0 +1,3 @@
+test.marending.dev {
+	respond "hello world"
+}
