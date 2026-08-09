@@ -31,8 +31,7 @@ ssh "${REMOTE}" "
   sudo install -m0644 /tmp/dns.service /tmp/dns.timer /etc/systemd/system/ &&
   rm -f /tmp/dns.sh /tmp/dns.service /tmp/dns.timer &&
   sudo mkdir -p ${REMOTE_DIR} &&
-  sudo systemctl daemon-reload &&
-  sudo systemctl enable --now dns.timer
+  sudo systemctl daemon-reload
 "
 
 # --- 2. credentials --------------------------------------------------------
@@ -54,6 +53,11 @@ printf '%s' "$APIKEY"       | ssh "${REMOTE}" "sudo install -m0600 /dev/stdin ${
 printf '%s' "$SECRETAPIKEY" | ssh "${REMOTE}" "sudo install -m0600 /dev/stdin ${REMOTE_DIR}/secretapikey"
 printf '%s' "$PULSE_URL"    | ssh "${REMOTE}" "sudo install -m0600 /dev/stdin ${REMOTE_DIR}/pulse_url"
 echo "Credentials deployed (0600 root:root)."
+
+# Start the timer only now: units AND credentials are in place, so the
+# service can never fire with missing LoadCredential files (which fails
+# every tick until the next successful deploy).
+ssh "${REMOTE}" "sudo systemctl enable --now dns.timer"
 
 echo "Done. Timer status:"
 ssh "${REMOTE}" "systemctl status dns.timer --no-pager -n 0 | head -6"
