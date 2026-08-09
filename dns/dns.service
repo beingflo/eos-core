@@ -1,0 +1,17 @@
+[Unit]
+Description=Porkbun dynamic DNS updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/porkbun-ddns/env
+ExecStart=/usr/local/bin/dns.sh
+TimeoutStartSec=300
+
+# The script only ever writes /var/lib/porkbun-ddns; everything else is
+# read-only. Secrets are read by systemd (EnvironmentFile), not by the script.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/porkbun-ddns
+PrivateTmp=true
+NoNewPrivileges=true

@@ -1,36 +1,50 @@
 #!/usr/bin/env bash
+#
+# Deploy the Porkbun DDNS updater to the server (run from inside the dns/ folder):
+#   dns.sh          -> /usr/local/bin/dns.sh
+#   dns.service     -> /etc/systemd/system/dns.service
+#   dns.timer       -> /etc/systemd/system/dns.timer   (enabled + started)
+#   env file        -> /etc/porkbun-ddns/env           (0600 root:root)
+#
+# Secrets: .env.enc is decrypted with sops (age key from 1Password) and
+# streamed to the server.
+#
+# Usage:
+#   ./deploy.sh              # default remote (REMOTE=arm)
+#   REMOTE=myserver ./deploy.sh
+
 set -euo pipefail
-die() { echo "$*" 1>&2; exit 1; }
+die() { echo "ERROR: $*" >&2; exit 1; }
 
-REMOTE=arm
-ENC=.env.enc
-REMOTE_ENV=/etc/dyndns/env
-REMOTE_MARKER=/etc/dyndns/env.blob
+REMOTE="${REMOTE:-eos}"                    # ssh host alias
 
-[ -z "$(git status --porcelain)" ] || die "Uncommitted changes"
+SRC_SCRIPT="dns.sh"
+SRC_UNITS=( "dns.service" "dns.timer" )
 
-# code + units — no secrets, always sync
-scp dyndns.sh dyndns.service dyndns.timer "${REMOTE}:/tmp/"
-ssh "${REMOTE}" '
-  sudo install -m0755 /tmp/dyndns.sh /usr/local/bin/dyndns.sh &&
-  sudo install -m0644 /tmp/dyndns.service /tmp/dyndns.timer /etc/systemd/system/ &&
-  sudo mkdir -p /etc/dyndns &&
-  rm -f /tmp/dyndns.{sh,service,timer} &&
+REMOTE_DIR="/etc/porkbun-ddns"
+REMOTE_ENV="${REMOTE_DIR}/env"             # EnvironmentFile
+
+# --- 1. code + systemd units ----------------------------------------------
+scp "${SRC_SCRIPT}" "${SRC_UNITS[@]}" "${REMOTE}:/tmp/"
+ssh "${REMOTE}" "
+  sudo install -m0755 /tmp/dns.sh /usr/local/bin/dns.sh &&
+  sudo install -m0644 /tmp/dns.service /tmp/dns.timer /etc/systemd/system/ &&
+  rm -f /tmp/dns.sh /tmp/dns.service /tmp/dns.timer &&
+  sudo mkdir -p ${REMOTE_DIR} &&
   sudo systemctl daemon-reload &&
-  sudo systemctl enable --now dyndns.timer'
+  sudo systemctl enable --now dns.timer &&
+  sudo systemctl restart dns.timer
+"
 
-# env — decrypt + push only when the ciphertext actually changed
-local_blob=$(git rev-parse "HEAD:${ENC}")
-remote_blob=$(ssh "${REMOTE}" "sudo cat ${REMOTE_MARKER} 2>/dev/null" || true)
+# --- 2. env file -----------------------------------------------------------
+ENV_SRC=".env.enc"
+[[ -f "${ENV_SRC}" ]] || die "${ENV_SRC} not found"
 
-if [ "${local_blob}" != "${remote_blob}" ]; then
-  echo "Secret changed — decrypting"
-  trap 'rm -f .env.plain' EXIT
-  export SOPS_AGE_KEY=$(op item get "SOPS age key - dyndns" --reveal --fields "private key")
-  sops -d --input-type dotenv --output-type dotenv "${ENC}" > .env.plain
-  # create 0600 root file first, then fill it — no world-readable window, no /tmp residue
-  ssh "${REMOTE}" "sudo install -m0600 /dev/null ${REMOTE_ENV} && sudo tee ${REMOTE_ENV} >/dev/null" < .env.plain
-  echo "${local_blob}" | ssh "${REMOTE}" "sudo tee ${REMOTE_MARKER} >/dev/null"
-else
-  echo "Secret unchanged — skipping decrypt"
-fi
+echo "Decrypting ${ENV_SRC} and deploying."
+export SOPS_AGE_KEY="$(op item get "SOPS age key - dyndns" --reveal --fields "private key")"
+sops -d --input-type dotenv --output-type dotenv "${ENV_SRC}" |
+  ssh "${REMOTE}" "sudo install -m0600 /dev/null ${REMOTE_ENV}.tmp && sudo tee ${REMOTE_ENV}.tmp >/dev/null && sudo mv ${REMOTE_ENV}.tmp ${REMOTE_ENV}"
+echo "Env deployed (0600 root:root → ${REMOTE_ENV})."
+
+echo "Done. Timer status:"
+ssh "${REMOTE}" "systemctl status dns.timer --no-pager -n 0 | head -6"

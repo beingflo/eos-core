@@ -2,51 +2,45 @@
 #
 # porkbun-ddns.sh — point Porkbun A records at this host's current public IP.
 #
-# Only calls the edit API when the IP has actually changed (cached in STATE_FILE),
-# so it's safe to run every few minutes without tripping Porkbun's rate limits.
-# Detects the public IP via Porkbun's own /ping endpoint, so the value pushed is
-# exactly the address Porkbun sees the request coming from (avoids NAT/proxy skew).
+# Calls the edit API only when the IP has changed (cached in STATE_FILE), and
+# detects the public IP via Porkbun's own /ping endpoint.
 #
-# Sends a heartbeat to updown.io at most once per PULSE_INTERVAL, and only on a
-# successful run, so a stretch of failures stops the heartbeat and updown alerts.
+# Sends an updown.io heartbeat at most once per PULSE_INTERVAL, on successful
+# runs only.
 #
 # Exit status: 0 = unchanged or all records updated; 1 = something failed
-# (so systemd marks the unit failed and the IP is NOT cached, forcing a retry).
+# (systemd marks the unit failed and the IP is NOT cached, forcing a retry).
 
 set -euo pipefail
 
 # --- config ---------------------------------------------------------------
-CRED_FILE="/etc/porkbun-ddns/credentials"    # 0600 root:root; defines APIKEY + SECRETAPIKEY
-STATE_FILE="/var/lib/porkbun-ddns/last_ip"   # cache of the last IP we successfully pushed
-TTL="600"                                    # 600s is Porkbun's minimum
+# Secrets come from the environment (EnvironmentFile=/etc/porkbun-ddns/env).
+APIKEY="${APIKEY:?APIKEY not set (see /etc/porkbun-ddns/env)}"
+SECRETAPIKEY="${SECRETAPIKEY:?SECRETAPIKEY not set (see /etc/porkbun-ddns/env)}"
+TTL="${TTL:-600}"                             # Porkbun's minimum
 
-# Heartbeat (updown.io). Leave PULSE_URL empty to disable.
-PULSE_URL="https://pulse.updown.io/xxxxxxxx"  # your updown pulse URL
-PULSE_STATE="/var/lib/porkbun-ddns/last_pulse"
-PULSE_INTERVAL=82800                          # seconds between pulses; 82800 = 23h
-                                              # (first successful run past this pings)
+# Heartbeat (updown.io). Empty/unset PULSE_URL disables it.
+PULSE_URL="${PULSE_URL:-}"
+PULSE_INTERVAL="${PULSE_INTERVAL:-82800}"    # seconds between pulses
+
+STATE_FILE="/var/lib/porkbun-ddns/last_ip"     # last IP we successfully pushed
+PULSE_STATE="/var/lib/porkbun-ddns/last_pulse" # timestamp of last successful pulse
 
 # Records to keep pointed at this host, one per line as: "domain subdomain"
 # Leave the subdomain empty ("") for the apex/root record of a domain.
 RECORDS=(
-  "example.com "          # example.com        (apex)
-  "example.com www"       # www.example.com
-  "otherdomain.net "      # otherdomain.net    (apex)
+  "marending.dev test"
 )
 # --------------------------------------------------------------------------
 
-# api-ipv4 forces the request over IPv4 so we always learn (and set) an A record.
+# api-ipv4 forces IPv4 so we always learn (and set) an A record.
 API="https://api-ipv4.porkbun.com/api/json/v3"
-
-# shellcheck source=/dev/null
-. "$CRED_FILE"   # must set: APIKEY=pk1_...  and  SECRETAPIKEY=sk1_...
 
 # Build the JSON auth body; $1 is appended inside the object (e.g. ,"content":"...").
 auth() { printf '{"apikey":"%s","secretapikey":"%s"%s}' "$APIKEY" "$SECRETAPIKEY" "$1"; }
 
 # Send a heartbeat if enough time has passed since the last successful pulse.
-# Call this ONLY on success paths. The timestamp advances only when the pulse
-# itself succeeds, so a failed pulse is retried on the next eligible run.
+# Call only on success paths; the timestamp advances only on a successful pulse.
 maybe_pulse() {
   [[ -n "${PULSE_URL:-}" ]] || return 0
   local now last
@@ -83,7 +77,7 @@ last_ip=""
 
 if [[ "$current_ip" == "$last_ip" ]]; then
   echo "IP unchanged ($current_ip); nothing to do."
-  maybe_pulse            # healthy run: heartbeat eligible
+  maybe_pulse
   exit 0
 fi
 
@@ -111,14 +105,13 @@ for entry in "${RECORDS[@]}"; do
   fi
 done
 
-# --- persist new IP only on full success ----------------------------------
-# If any record failed, we deliberately do NOT cache the new IP, so the next
-# run sees a "change" again and retries the whole set rather than masking it.
+# --- persist the new IP only when every record succeeded ------------------
+# On failure the old IP is kept, so the next run retries the whole set.
 if [[ "$failed" -eq 0 ]]; then
   mkdir -p "$(dirname "$STATE_FILE")"
   printf '%s\n' "$current_ip" > "$STATE_FILE"
   echo "All records updated; cached new IP."
-  maybe_pulse            # healthy run: heartbeat eligible
+  maybe_pulse
   exit 0
 else
   echo "One or more records failed; not caching IP (will retry next run)." >&2
