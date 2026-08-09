@@ -5,13 +5,20 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/porkbun-ddns/env
+DynamicUser=yes
+StateDirectory=porkbun-ddns
+LoadCredential=apikey:/etc/porkbun-ddns/apikey
+LoadCredential=secretapikey:/etc/porkbun-ddns/secretapikey
+LoadCredential=pulse_url:/etc/porkbun-ddns/pulse_url
 ExecStart=/usr/local/bin/dns.sh
 TimeoutStartSec=300
 
-# The script only ever writes /var/lib/porkbun-ddns; everything else is
-# read-only. Secrets are read by systemd (EnvironmentFile), not by the script.
+# Script state lives under /var/lib/porkbun-ddns (managed by StateDirectory).
+# Credentials are injected via LoadCredential
 ProtectSystem=strict
-ReadWritePaths=/var/lib/porkbun-ddns
 PrivateTmp=true
+PrivateDevices=true
 NoNewPrivileges=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryDenyWriteExecute=true

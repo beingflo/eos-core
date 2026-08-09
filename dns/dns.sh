@@ -14,13 +14,17 @@
 set -euo pipefail
 
 # --- config ---------------------------------------------------------------
-# Secrets come from the environment (EnvironmentFile=/etc/porkbun-ddns/env).
-APIKEY="${APIKEY:?APIKEY not set (see /etc/porkbun-ddns/env)}"
-SECRETAPIKEY="${SECRETAPIKEY:?SECRETAPIKEY not set (see /etc/porkbun-ddns/env)}"
+# Secrets are injected by systemd via LoadCredential (never in the environment).
+# $CREDENTIALS_DIRECTORY is set automatically by systemd when LoadCredential is used.
+CRED_DIR="${CREDENTIALS_DIRECTORY:?CREDENTIALS_DIRECTORY not set (run via systemd)}"
+APIKEY="$(<"${CRED_DIR}/apikey")"
+SECRETAPIKEY="$(<"${CRED_DIR}/secretapikey")"
+[[ -n "${APIKEY}" ]] || { echo "ERROR: apikey credential is empty" >&2; exit 1; }
+[[ -n "${SECRETAPIKEY}" ]] || { echo "ERROR: secretapikey credential is empty" >&2; exit 1; }
 TTL="${TTL:-600}"                             # Porkbun's minimum
 
-# Heartbeat (updown.io). Empty/unset PULSE_URL disables it.
-PULSE_URL="${PULSE_URL:-}"
+# Heartbeat (updown.io). Missing/empty pulse_url credential disables it.
+PULSE_URL="$([ -s "${CRED_DIR}/pulse_url" ] && cat "${CRED_DIR}/pulse_url" || true)"
 PULSE_INTERVAL="${PULSE_INTERVAL:-82800}"    # seconds between pulses
 
 STATE_FILE="/var/lib/porkbun-ddns/last_ip"     # last IP we successfully pushed
@@ -49,7 +53,6 @@ maybe_pulse() {
   [[ -f "$PULSE_STATE" ]] && last="$(cat "$PULSE_STATE" 2>/dev/null || echo 0)"
   if (( now - last >= PULSE_INTERVAL )); then
     if curl -fsS --max-time 15 "$PULSE_URL" >/dev/null; then
-      mkdir -p "$(dirname "$PULSE_STATE")"
       printf '%s\n' "$now" > "$PULSE_STATE"
       echo "Heartbeat sent to updown."
     else
@@ -108,7 +111,6 @@ done
 # --- persist the new IP only when every record succeeded ------------------
 # On failure the old IP is kept, so the next run retries the whole set.
 if [[ "$failed" -eq 0 ]]; then
-  mkdir -p "$(dirname "$STATE_FILE")"
   printf '%s\n' "$current_ip" > "$STATE_FILE"
   echo "All records updated; cached new IP."
   maybe_pulse

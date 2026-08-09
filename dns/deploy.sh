@@ -4,10 +4,11 @@
 #   dns.sh          -> /usr/local/bin/dns.sh
 #   dns.service     -> /etc/systemd/system/dns.service
 #   dns.timer       -> /etc/systemd/system/dns.timer   (enabled + started)
-#   env file        -> /etc/porkbun-ddns/env           (0600 root:root)
+#   credential files -> /etc/porkbun-ddns/{apikey,secretapikey,pulse_url}  (0600 root:root)
 #
-# Secrets: .env.enc is decrypted with sops (age key from 1Password) and
-# streamed to the server.
+# Secrets: .env.enc is decrypted with sops (age key from 1Password),
+# sourced into local shell memory, then each value is piped individually
+# to the server — no plaintext touches disk on either side.
 #
 # Usage:
 #   ./deploy.sh              # default remote (REMOTE=arm)
@@ -22,7 +23,6 @@ SRC_SCRIPT="dns.sh"
 SRC_UNITS=( "dns.service" "dns.timer" )
 
 REMOTE_DIR="/etc/porkbun-ddns"
-REMOTE_ENV="${REMOTE_DIR}/env"             # EnvironmentFile
 
 # --- 1. code + systemd units ----------------------------------------------
 scp "${SRC_SCRIPT}" "${SRC_UNITS[@]}" "${REMOTE}:/tmp/"
@@ -32,19 +32,25 @@ ssh "${REMOTE}" "
   rm -f /tmp/dns.sh /tmp/dns.service /tmp/dns.timer &&
   sudo mkdir -p ${REMOTE_DIR} &&
   sudo systemctl daemon-reload &&
-  sudo systemctl enable --now dns.timer &&
-  sudo systemctl restart dns.timer
+  sudo systemctl enable --now dns.timer
 "
 
-# --- 2. env file -----------------------------------------------------------
+# --- 2. credentials --------------------------------------------------------
 ENV_SRC=".env.enc"
 [[ -f "${ENV_SRC}" ]] || die "${ENV_SRC} not found"
 
-echo "Decrypting ${ENV_SRC} and deploying."
+echo "Decrypting ${ENV_SRC} ..."
 export SOPS_AGE_KEY="$(op item get "SOPS age key - dyndns" --reveal --fields "private key")"
-sops -d --input-type dotenv --output-type dotenv "${ENV_SRC}" |
-  ssh "${REMOTE}" "sudo install -m0600 /dev/null ${REMOTE_ENV}.tmp && sudo tee ${REMOTE_ENV}.tmp >/dev/null && sudo mv ${REMOTE_ENV}.tmp ${REMOTE_ENV}"
-echo "Env deployed (0600 root:root → ${REMOTE_ENV})."
+
+# Source decrypted dotenv into local shell (never touches disk).
+source <(sops -d --input-type dotenv --output-type dotenv "${ENV_SRC}")
+
+echo "Deploying credentials to ${REMOTE} ..."
+ssh "${REMOTE}" "sudo mkdir -p ${REMOTE_DIR}"
+printf '%s' "$APIKEY"       | ssh "${REMOTE}" "sudo install -m0600 /dev/stdin ${REMOTE_DIR}/apikey"
+printf '%s' "$SECRETAPIKEY" | ssh "${REMOTE}" "sudo install -m0600 /dev/stdin ${REMOTE_DIR}/secretapikey"
+printf '%s' "$PULSE_URL"    | ssh "${REMOTE}" "sudo install -m0600 /dev/stdin ${REMOTE_DIR}/pulse_url"
+echo "Credentials deployed (0600 root:root)."
 
 echo "Done. Timer status:"
 ssh "${REMOTE}" "systemctl status dns.timer --no-pager -n 0 | head -6"
