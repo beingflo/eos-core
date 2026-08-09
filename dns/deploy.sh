@@ -40,7 +40,7 @@ ENV_SRC=".env.enc"
 [[ -f "${ENV_SRC}" ]] || die "${ENV_SRC} not found"
 
 echo "Decrypting ${ENV_SRC} ..."
-export SOPS_AGE_KEY="$(op item get "SOPS age key - dyndns" --reveal --fields "private key")"
+export SOPS_AGE_KEY="$(op item get "SOPS age key - eos-core" --reveal --fields "private key")"
 
 # Source decrypted dotenv into local shell (never touches disk).
 source <(sops -d --input-type dotenv --output-type dotenv "${ENV_SRC}")
