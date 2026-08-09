@@ -43,7 +43,10 @@ echo "Decrypting ${ENV_SRC} ..."
 export SOPS_AGE_KEY="$(op item get "SOPS age key - eos-core" --reveal --fields "private key")"
 
 # Source decrypted dotenv into local shell (never touches disk).
-source <(sops -d --input-type dotenv --output-type dotenv "${ENV_SRC}")
+SOPS_OUT="$(sops -d --input-type dotenv --output-type dotenv "${ENV_SRC}")" || die "sops decryption failed (check SOPS_AGE_KEY vs .env.enc recipient)"
+# NOTE: source <(...) silently sources nothing on macOS bash 3.2 (returns 0,
+# defines no variables) - use eval to execute the dotenv in this shell.
+eval "${SOPS_OUT}"
 
 echo "Deploying credentials to ${REMOTE} ..."
 ssh "${REMOTE}" "sudo mkdir -p ${REMOTE_DIR}"
