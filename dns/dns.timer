@@ -1,8 +1,8 @@
 [Unit]
-Description=Run the Porkbun dynamic DNS updater every 10 minutes
+Description=Run the Porkbun dynamic DNS updater hourly
 
 [Timer]
-OnCalendar=*:0/10
+OnCalendar=hourly
 RandomizedDelaySec=30
 Persistent=true
 
