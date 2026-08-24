@@ -97,11 +97,15 @@ for entry in "${RECORDS[@]}"; do
   label="${sub:+$sub.}$domain"   # pretty name for logging
 
   # Empty $sub hits the apex; the documented editByNameType behaviour.
+  # NOTE: deliberately no -f/--fail-with-body here — on an HTTP 4xx we still
+  # want Porkbun's JSON error body (it carries the machine-readable code +
+  # message) so failures stay diagnosable. The status check below handles
+  # non-SUCCESS responses; the || branch covers network/timeout failures.
   resp="$(
-    curl -fsS --max-time 20 -X POST "$API/dns/editByNameType/$domain/A/$sub" \
+    curl -sS --max-time 20 -X POST "$API/dns/editByNameType/$domain/A/$sub" \
       -H 'Content-Type: application/json' \
       -d "$(auth ",\"content\":\"$current_ip\",\"ttl\":\"$TTL\"")"
-  )" || { echo "  ERROR: request failed for $label" >&2; failed=1; continue; }
+  )" || { echo "  ERROR: request failed for $label: ${resp:-<no response body>}" >&2; failed=1; continue; }
 
   if [[ "$resp" == *'"status":"SUCCESS"'* ]]; then
     echo "  updated $label -> $current_ip"
