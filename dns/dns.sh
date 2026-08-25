@@ -35,8 +35,10 @@ RECORDS=(
 )
 # --------------------------------------------------------------------------
 
-# api-ipv4 forces IPv4 so we always learn (and set) an A record.
-API="https://api-ipv4.porkbun.com/api/json/v3"
+# api-ipv4 host is retired (connections hang); api.porkbun.com may report
+# an IPv6 address on dual-stack egress, so the ping result is validated
+# as IPv4 below.
+API="https://api.porkbun.com/api/json/v3"
 
 # Build the JSON auth body; $1 is appended inside the object (e.g. ,"content":"...").
 auth() { printf '{"apikey":"%s","secretapikey":"%s"%s}' "$APIKEY" "$SECRETAPIKEY" "$1"; }
@@ -59,15 +61,29 @@ maybe_pulse() {
 }
 
 # --- determine current public IP via Porkbun's ping endpoint --------------
-current_ip="$(
-  curl -fsS --max-time 20 -X POST "$API/ping" \
-    -H 'Content-Type: application/json' \
-    -d "$(auth '')" \
-  | sed -n 's/.*"yourIp":"\([^"]*\)".*/\1/p'
-)"
+current_ip=""
+for attempt in 1 2 3; do
+  if current_ip="$(
+    curl -fsS --max-time 15 -X POST "$API/ping" \
+      -H 'Content-Type: application/json' \
+      -d "$(auth '')" \
+    | sed -n 's/.*"yourIp":"\([^"]*\)".*/\1/p'
+  )" && [[ -n "${current_ip:-}" ]]; then
+    break
+  fi
+  echo "WARN: ping attempt $attempt failed; retrying..." >&2
+  current_ip=""
+  sleep 2
+done
 
 if [[ -z "${current_ip:-}" ]]; then
   echo "ERROR: could not determine current IP from Porkbun ping" >&2
+  exit 1
+fi
+
+# A records need IPv4; api.porkbun.com may report IPv6 on dual-stack egress.
+if [[ ! "$current_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  echo "ERROR: ping returned non-IPv4 address '$current_ip'; refusing to update A records" >&2
   exit 1
 fi
 
