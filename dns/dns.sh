@@ -35,9 +35,8 @@ RECORDS=(
 )
 # --------------------------------------------------------------------------
 
-# api-ipv4 host is retired (connections hang); api.porkbun.com may report
-# an IPv6 address on dual-stack egress, so the ping result is validated
-# as IPv4 below.
+# api-ipv4 host is retired. api.porkbun.com ping returns the connection's
+# address; -4 forces IPv4 (validated below as a backstop).
 API="https://api.porkbun.com/api/json/v3"
 
 # Build the JSON auth body; $1 is appended inside the object (e.g. ,"content":"...").
@@ -64,7 +63,7 @@ maybe_pulse() {
 current_ip=""
 for attempt in 1 2 3; do
   if current_ip="$(
-    curl -fsS --max-time 15 -X POST "$API/ping" \
+    curl -4 -fsS --max-time 15 -X POST "$API/ping" \
       -H 'Content-Type: application/json' \
       -d "$(auth '')" \
     | sed -n 's/.*"yourIp":"\([^"]*\)".*/\1/p'
@@ -81,7 +80,7 @@ if [[ -z "${current_ip:-}" ]]; then
   exit 1
 fi
 
-# A records need IPv4; api.porkbun.com may report IPv6 on dual-stack egress.
+# Backstop: A records need IPv4 even though ping already used -4.
 if [[ ! "$current_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   echo "ERROR: ping returned non-IPv4 address '$current_ip'; refusing to update A records" >&2
   exit 1
