@@ -114,15 +114,33 @@ for entry in "${RECORDS[@]}"; do
       echo "  $label already $current_ip (record ${ids[i]}); nothing to do"
       continue
     fi
+    # edit-by-ID wipes the name if omitted (moves the record to the apex);
+    # always send the subdomain.
+    edit_extra=",\"type\":\"A\",\"content\":\"$current_ip\",\"ttl\":\"$TTL\""
+    if [[ -n "$sub" ]]; then
+      edit_extra=",\"name\":\"$sub\"$edit_extra"
+    fi
     resp2="$(
       curl -sS --max-time 20 -X POST "$API/dns/edit/$domain/${ids[i]}" \
         -H 'Content-Type: application/json' \
-        -d "$(auth ",\"type\":\"A\",\"content\":\"$current_ip\",\"ttl\":\"$TTL\"")"
+        -d "$(auth "$edit_extra")"
     )" || { echo "  ERROR: edit failed for $label (record ${ids[i]}): ${resp2:-<no response body>}" >&2; failed=1; continue; }
-    if [[ "$resp2" == *'"status":"SUCCESS"'* ]]; then
-      echo "  updated $label -> $current_ip (record ${ids[i]})"
-    else
+    if [[ "$resp2" != *'"status":"SUCCESS"'* ]]; then
       echo "  ERROR updating $label (record ${ids[i]}): $resp2" >&2
+      failed=1
+      continue
+    fi
+    echo "  updated $label -> $current_ip (record ${ids[i]})"
+    # Re-retrieve and confirm the record still exists (catches silent renames).
+    verify="$(
+      curl -sS --max-time 20 -X POST "$API/dns/retrieveByNameType/$domain/A/$sub" \
+        -H 'Content-Type: application/json' \
+        -d "$(auth '')"
+    )" || { echo "  ERROR: verify failed for $label: ${verify:-<no response body>}" >&2; failed=1; continue; }
+    if [[ "$verify" == *"\"id\":\"${ids[i]}\""* && "$verify" == *"\"content\":\"$current_ip\""* ]]; then
+      echo "  verified $label (record ${ids[i]})"
+    else
+      echo "  ERROR: $label (record ${ids[i]}) missing after edit — renamed? check Porkbun" >&2
       failed=1
     fi
   done
