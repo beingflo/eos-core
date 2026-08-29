@@ -2,6 +2,10 @@ test.marending.dev {
 	respond "hello world"
 }
 
+stage.rest.quest {
+    reverse_proxy localhost:3000
+}
+
 http://:8080 {
     bind 10.10.0.1
     respond "wireguard test"
