@@ -1,12 +1,12 @@
-stage.rest.quest {
+rest.quest {
     reverse_proxy localhost:3000
 }
 
-stage.go.rest.quest {
+go.rest.quest {
     reverse_proxy localhost:3001
 }
 
-stage.jour.rest.quest {
+jour.rest.quest {
     reverse_proxy localhost:3002
 }
 
