@@ -10,6 +10,10 @@ jour.rest.quest {
     reverse_proxy localhost:3002
 }
 
+mariotto.ch, www.marioto.ch {
+    reverse_proxy localhost:3003
+}
+
 http://:8080 {
     bind 10.10.0.1
     respond "wireguard test"
