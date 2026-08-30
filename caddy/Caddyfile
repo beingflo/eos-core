@@ -1,7 +1,3 @@
-test.marending.dev {
-	respond "hello world"
-}
-
 stage.rest.quest {
     reverse_proxy localhost:3000
 }
