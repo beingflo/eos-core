@@ -28,7 +28,6 @@ PULSE_STATE="${PULSE_STATE:-/var/lib/porkbun-ddns/last_pulse}" # timestamp of la
 # Records to keep pointed at this host, one per line as: "domain subdomain"
 # Leave the subdomain empty ("") for the apex/root record of a domain.
 RECORDS=(
-  "marending.dev test"
   "rest.quest "
   "rest.quest go"
   "rest.quest jour"
