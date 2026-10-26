@@ -18,7 +18,7 @@ acta.marending.dev {
     reverse_proxy localhost:8080
 }
 
-stage.marending.dev, www.stage.marending.dev {
+marending.dev, www.marending.dev {
     reverse_proxy localhost:3004
 }
 
