@@ -18,6 +18,10 @@ acta.marending.dev {
     reverse_proxy localhost:8080
 }
 
+stage.marending.dev, www.stage.marending.dev {
+    reverse_proxy localhost:3004
+}
+
 http://:8080 {
     bind 10.10.0.1
     respond "wireguard test"
