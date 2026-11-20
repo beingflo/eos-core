@@ -18,6 +18,16 @@ acta.marending.dev {
     reverse_proxy localhost:8080
 }
 
+varia.page {
+    reverse_proxy localhost:8090
+}
+
+# One origin only: the local database lives in OPFS per origin, so a second
+# hostname would be a second, empty notebook.
+www.varia.page {
+    redir https://varia.page{uri} permanent
+}
+
 marending.dev, www.marending.dev {
     reverse_proxy localhost:3004
 }
